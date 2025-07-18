@@ -15,11 +15,22 @@ app.use(express.static(path.join(__dirname, 'public')));
 const hf = new InferenceClient(process.env.HF_API_KEY);
 
 // Handle client-side routing
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "https://mangafy-ai.vercel.app"
+];
+
 app.use(cors({
-  origin: ["http://localhost:3000", "http://localhost:3001"], // Add both origins
-  methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
-  credentials: true,
-  optionsSuccessStatus: 204
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like curl or mobile apps)
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("CORS Not Allowed"));
+    }
+  },
+  credentials: true
 }));
 
 app.use(express.json());
