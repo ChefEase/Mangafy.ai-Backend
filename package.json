@@ -1,10 +1,11 @@
 {
   "name": "your-project-backend",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "ts-node src/index.ts"
+    "dev": "ts-node src/index.ts",
+    "start": "node server.js"
   },
   "keywords": [],
   "author": "",
