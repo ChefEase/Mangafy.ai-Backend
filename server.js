@@ -175,8 +175,8 @@ const response = await hf.chatCompletion({
       { role: "user", content: prompt }
   ],
   parameters: {
-      max_new_tokens: 1500,
-      temperature: 0.5
+      max_new_tokens: 1000,
+      temperature: 0.3
   }
 });
 const choice = response?.choices?.[0];
