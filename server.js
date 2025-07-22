@@ -149,6 +149,9 @@ const prompt = `Generate ${panelCount} manga panel(s) STRICTLY in this format AN
 ${panelExamples[panelCount]}
 
 !!! IMPORTANT RULES THAT YOU MUST FOLLOW !!!
+You are a manga scene director. You will ONLY use the characters, setting, and action I provide. 
+DO NOT add unnecessary characters, elements, scenes or backgrounds unless specified!! Stick to the script. Stick to what i say!!
+You are NOT allowed to create new narrative elements. Only describe what is written above. Be visual, not imaginative. 
 YOU MUST CONSISTENTLY USE THE FORMAT IN ${panelExamples}. IT IS A MUST!!!
 YOU MUST Generate exactly ${panelCount} panels. Do not genertae less than ${panelCount} and DO NOT GENERATE MORE than ${panelCount}!!
 When asked to generate 1 manga panel, you MUST GENERATE ONLY 1 Manga Panel and not FIVE!!
