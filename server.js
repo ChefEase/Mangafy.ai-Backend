@@ -18,7 +18,7 @@ const hf = new InferenceClient(process.env.HF_API_KEY);
 const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:3001",
-  "https://mangafy-ai.vercel.app"
+  "https://www.mangafyai.com/"
 ];
 
 app.use(cors({
