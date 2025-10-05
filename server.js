@@ -18,20 +18,26 @@ const hf = new InferenceClient(process.env.HF_API_KEY);
 const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:3001",
-  "https://www.mangafyai.com/"
+  "https://www.mangafyai.com"
 ];
 
-app.use(cors({
+const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (like curl or mobile apps)
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("CORS Not Allowed"));
+    // allow server-to-server or tools (no origin)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
     }
+    console.warn("CORS rejected origin:", origin);
+    return callback(new Error("CORS Not Allowed"));
   },
+  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization','X-Requested-With','Accept'],
   credentials: true
-}));
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // handle preflight for all routes
 
 app.use(express.json());
 
@@ -68,9 +74,9 @@ app.post('/proxy/huggingface', async (req, res) => {
       message: error.message,
       code: error.code,
       response: error.response?.data,
-      request: {
+      requestSnippet: {
         model: req.body.model,
-        inputs: req.body.inputs?.substring(0, 100) + '...'
+        inputsPreview: typeof req.body.inputs === 'string' ? req.body.inputs.substring(0,100) + '...' : '[object]'
       }
     });
     res.status(error.response?.status || 500).json({
@@ -81,227 +87,200 @@ app.post('/proxy/huggingface', async (req, res) => {
 
 app.post("/app/script-writing", async (req, res) => {
   try {
-    const { outline, panelCount, panelType } = req.body;
-    const HF_API_KEY = process.env.HF_API_KEY;
-    console.log("HF API Key (Backend):", process.env.HF_API_KEY);
-    console.log("Processing outline:", outline);
-    
-    if (typeof panelCount !== 'number' || panelCount < 1 || panelCount > 3) {
-      return res.status(400).json({ error: "Invalid panelCount parameter" });
+    // allow reassignment if we need to normalize panelCount
+    let { outline, panelCount, panelType } = req.body;
+
+    // Basic validation
+    if (!outline || typeof outline !== "string") {
+      return res.status(400).json({ error: "Invalid outline format - must be a non-empty string" });
     }
 
+    if (typeof panelCount !== "number" || panelCount < 1 || panelCount > 3) {
+      return res.status(400).json({ error: "Invalid panelCount parameter (must be 1, 2 or 3)" });
+    }
+
+    // Normalize values
     const validCounts = [1, 2, 3];
     const count = validCounts.includes(panelCount) ? panelCount : 3;
 
-    const cleanOutline = outline
-      .replace(/<[^>]*>?/gm, '') // Remove HTML tags
-      .replace(/\n/g, ' ')       // Remove newlines
-      .trim();
+    const cleanOutline = outline.replace(/<[^>]*>?/gm, "").replace(/\n/g, " ").trim();
 
-      if (!outline || typeof outline !== 'string') {
-        throw new Error("Invalid outline format - must be a string");
-      }
-        // Add this debug log
-      console.log("Raw outline input:", outline.substring(0, 100) + '...');
-      console.log("Requested panel count:", panelCount); 
+    // Panel examples (kept from your original)
+    const panelExamples = {
+      1: `[EXAMPLE]
+Panel 1
+Scene: A detailed description of setting and action of the story outline
+Camera: Shot type e.g close-up, medium, wide, low, extreme-close up, back, bird's eye, high
+Dialogue: "Conversation in the story"`,
+      2: `[EXAMPLE]
+Panel 1
+Scene: A detailed description of the setting and action of the first scene
+Camera: Shot type e.g close-up, medium, wide, low, extreme-close up, back, bird's eye, high
+Dialogue: "First conversation in the story"
 
-if (![1, 2, 3].includes(panelCount)) {
-  console.warn(`Invalid panelCount (${panelCount}), defaulting to 3`);
-  panelCount = 3;
-}
+Panel 2
+Scene: A detailed description of the setting and action of the second scene
+Camera: Shot type e.g close-up, medium, wide, low, extreme-close up, back, bird's eye, high
+Dialogue: "Last conversation in the story"`,
+      3: `[EXAMPLE]
+Panel 1
+Scene: A detailed description of the setting and action of the opening scene
+Camera: Shot type e.g close-up, medium, wide, low, extreme-close up, back, bird's eye, high
+Dialogue: "Opening conversation of the story"
 
-      const panelExamples = {
-        1: `[EXAMPLE]
-  Panel 1
-  Scene: A detailed description of setting and action of the story outline
-  Camera: Shot type e.g close-up, medium, wide, low, extreme-close up, back, bird's eye, high
-  Dialogue: "Conversation in the story"`,
-        2: `[EXAMPLE]
-  Panel 1
-  Scene: A detailed description of the setting and action of the first scene
-  Camera: Shot type e.g close-up, medium, wide, low, extreme-close up, back, bird's eye, high
-  Dialogue: "First conversation in the story"
-  
-  Panel 2
-  Scene: A deatiled Description of the setting and action of the second scene
-  Camera: Shot type e.g close-up, medium, wide, low, extreme-close up, back, bird's eye, high
-  Dialogue: "last conversation in the story"`,
-        3: `[EXAMPLE]
-  Panel 1
-  Scene: A detailed description of the setting and action of the opening scene
-  Camera: Shot type e.g close-up, medium, wide, low, extreme-close up, back, bird's eye, high
-  Dialogue: "Opening conversation of the story"
-  
-  Panel 2
-  Scene: A detailed description of the setting and action of the middle scence
-  Camera: Shot type e.g close-up, medium, wide, low, extreme-close up, back, bird's eye, high
-  Dialogue: "Middle conversation of the story"
-  
-  Panel 3
-  Scene: A detailed description of the seeting and action of the closing scene
-  Camera: Shot type e.g close-up, medium, wide, low, extreme-close up, back, bird's eye, high
-  Dialogue: "Last conversation of the story"`
-      };
-  
-// server.js - Update the prompt
-const prompt = `Generate ${panelCount} manga panel(s) STRICTLY in this format AND YOU MUST FOLLOW THE RULES DOWN BELOW:
+Panel 2
+Scene: A detailed description of the setting and action of the middle scene
+Camera: Shot type e.g close-up, medium, wide, low, extreme-close up, back, bird's eye, high
+Dialogue: "Middle conversation of the story"
 
-${panelExamples[panelCount]}
+Panel 3
+Scene: A detailed description of the setting and action of the closing scene
+Camera: Shot type e.g close-up, medium, wide, low, extreme-close up, back, bird's eye, high
+Dialogue: "Last conversation of the story"`
+    };
+
+    // Build the prompt (kept your rules)
+    const prompt = `Generate ${count} manga panel(s) STRICTLY in this format AND YOU MUST FOLLOW THE RULES DOWN BELOW:
+
+${panelExamples[count]}
 
 !!! IMPORTANT RULES THAT YOU MUST FOLLOW !!!
 You are a manga scene director. You will ONLY use the characters, setting, and action I provide. 
 DO NOT add unnecessary characters, elements, scenes or backgrounds unless specified!! Stick to the script. Stick to what i say!!
 You are NOT allowed to create new narrative elements. Only describe what is written above. Be visual, not imaginative. 
-YOU MUST CONSISTENTLY USE THE FORMAT IN ${panelExamples}. IT IS A MUST!!!
-YOU MUST Generate exactly ${panelCount} panels. Do not genertae less than ${panelCount} and DO NOT GENERATE MORE than ${panelCount}!!
+YOU MUST CONSISTENTLY USE THE FORMAT IN ${panelExamples[count]}. IT IS A MUST!!!
+YOU MUST Generate exactly ${count} panels. Do not generate less than ${count} and DO NOT GENERATE MORE than ${count}!!
 When asked to generate 1 manga panel, you MUST GENERATE ONLY 1 Manga Panel and not FIVE!!
-YOU MUST , it is a must to Follow the format in ${panelExamples} EXACTLY as provided
-It is a must that the scene must include a detailed description of the setting and action not just a description of the setting.
+YOU MUST follow the format in ${panelExamples[count]} EXACTLY as provided
+It is a must that the scene includes a detailed description of the setting and action not just a description of the setting.
 CHARACTERS MENTIONED MUST APPEAR IN THE PANELS.
-Every panel generated, every panel generated MUST use the same format. Don't use [1] for Panel 1. use panel 1 for Panel 1, Panel 2 for Panel 2 and Panel 3 for Panel 3. Do not stry away from the format under any circumstance.
-YOU MUST COMPLETELY GENERATE ALL THE PANLES. EVERY SINGLE PANEL MUST BE FULLY GENERATED IN THE RIGHT FORMAT. EVERY SINGLE PANEL MUST BE FULLY GENERATED WITH THE SCENE, CAMERA AND DIALOGUE!!.
-IF Characters are mentioned in story, u MUST include them in the story and visually describe what they are wearing or what they are doing, if mentioned in the story, if not, do not include them.
+Every panel generated MUST use the same format. Use Panel 1, Panel 2, Panel 3 exactly.
+YOU MUST COMPLETELY GENERATE ALL THE PANELS. EVERY SINGLE PANEL MUST BE FULLY GENERATED IN THE RIGHT FORMAT.
+IF characters are mentioned in story, you MUST include them in the panels and describe what they are wearing or doing if specified.
 2. Number panels sequentially from Panel 1
-3. You MUST use the camera angle like e.g close-up, medium, wide, low, extreme-close up, back, bird's eye, high
-6. You MUST generate conversations of the sory
+3. You MUST use the camera angle like e.g. close-up, medium, wide, low, extreme-close up, back, bird's eye, high
+6. You MUST generate conversations of the story
 7. ALWAYS include a Scene, Camera, and Dialogue for each panel
 8. Do not skip any sections
 9. Do not add any extra text, recommendations, or explanations
-10. Do not include symbols like ❤️ or other non-text characters
-
+10. Do not include non-text symbols like emojis
 
 Outline: ${cleanOutline}`;
 
-const response = await hf.chatCompletion({
-  model: "mistralai/Mixtral-8x7B-Instruct-v0.1",
-  messages: [
-      { role: "user", content: prompt }
-  ],
-  parameters: {
-      max_new_tokens: 1000,
-      temperature: 0.3
-  }
-});
-const choice = response?.choices?.[0];
-const generatedTextRaw = 
-  (choice?.message?.content && typeof choice.message.content === 'string') ? choice.message.content :
-  (choice?.text && typeof choice.text === 'string') ? choice.text :
-  (response?.generated_text && typeof response.generated_text === 'string') ? response.generated_text :
-  null;
+    // Call the HF chat model
+    const response = await hf.chatCompletion({
+      model: "mistralai/Mixtral-8x7B-Instruct-v0.1",
+      messages: [{ role: "user", content: prompt }],
+      parameters: {
+        max_new_tokens: 1000,
+        temperature: 0.3
+      }
+    });
 
-const generatedText = generatedTextRaw?.trim();
-console.log("Raw response text:", generatedTextRaw);
-console.log("Cleaned text after trim:", generatedTextRaw?.trim());
-console.log("Length:", generatedTextRaw?.trim()?.length);
-console.log("Raw HF response object:", JSON.stringify(response, null, 2));
+    // Extract generated text safely (support multiple response shapes)
+    const choice = response?.choices?.[0];
+    const generatedTextRaw =
+      (choice?.message?.content && typeof choice.message.content === "string")
+        ? choice.message.content
+        : (choice?.text && typeof choice.text === "string")
+        ? choice.text
+        : (response?.generated_text && typeof response.generated_text === "string")
+        ? response.generated_text
+        : null;
 
-if (!generatedText || generatedText.length < 10) {
-  console.error("Generated text is too short or missing.");
-  throw new Error("No valid text generated from AI");
-}
-
-const cleanText = generatedText
-    .replace(/\[([0-9]+)\]/g, 'Panel $1') // ✅ convert [1] to Panel 1
-    .replace(/:\s*\n/g, '\n')            // ✅ normalize "Panel 1:\n" to "Panel 1\n"
-    .replace(/```/g, '')                 // remove markdown blocks
-    .replace(/\*\*/g, '')                // remove bold
-    .replace(/[^\x00-\x7F]/g, '')        // remove emojis
-  .replace(/```/g, '')  // Remove markdown code blocks
-  .replace(/\*\*/g, '')  // Remove bold markers
-  .replace(/\d+\.\s*\d+\./g, '') // Remove duplicate numbering (e.g., 6. 6.)
-  .replace(/.*PANEL 1:/s, 'PANEL 1:') // Remove everything before the first panel
-  .replace(/\[Panel/g, 'PANEL')
-  .replace(/\]/g, '') 
-  .replace(/Panel \d+:/g, match => match.replace(':', '')) // Remove colons
-  .replace(/Thought bubble from |Narration box:/g, '') // Remove dialogue prefixes
-  .trim();
-  console.log("Cleaned AI Response:", cleanText);
-
-    console.log("Raw AI Response:", generatedText);
-    const logDir = path.join(__dirname, 'logs');
-if (!fs.existsSync(logDir)) {
-  fs.mkdirSync(logDir);
-}
-fs.writeFileSync(path.join(logDir, 'last_response.txt'), generatedText);
-      // In server.js
-      let panelRegex = /Panel\s*\d+\s*\n\s*Scene:\s*(.+?)\s*\n\s*Camera:\s*(.+?)\s*\n\s*Dialogue:\s*(.+?)(?=\n\s*Panel|\s*$)/gis;
-       let matches = [...cleanText.matchAll(panelRegex)];
-       console.log(`Panels detected: ${matches.length}, Expected: ${panelCount}`);
-
-    console.log("Regex Matches:", matches);
-    if (matches.length === 0) {
-      console.log("Trying alternative parsing..."); 
-      panelRegex = /Scene\s*:\s*((?:.|\n)+?)\s*\n\s*Camera\s*:\s*((?:.|\n)+?)\s*\n\s*Dialogue\s*:\s*"?(.+?)"?/gis;
-      matches = [...generatedText.matchAll(panelRegex)].map(m => ({
-        0: m[0],
-        1: m[1],  // Scene
-        2: m[2],  // Camera
-        3: m[3]   // Dialogue
-      }));
+    if (!generatedTextRaw || generatedTextRaw.trim().length < 10) {
+      console.error("Generated text is missing or too short", { generatedTextRaw, responseSummary: response ? true : false });
+      throw new Error("No valid text generated from AI");
     }
-    
-if (matches.length !== panelCount) {
-  console.warn(`Mismatch detected. Expected ${panelCount}, but received ${matches.length}`);
-  matches = matches.slice(0, panelCount);  // Trim excess panels
-}
-    
-if (matches.length === 0) {
-  matches = [...cleanText.matchAll(panelRegex)];
-}
 
-if (matches.length === 0) {
-  console.error("Failed to parse panels from:", generatedText);
-  throw new Error(`No valid panels parsed. Raw AI output: ${generatedText.substring(0, 200)}...`);
-}
-    const panels = matches.map(match => {
-      scene =  match[1]?.trim(),
-      camera =  match[2]?.trim(),
-      dialogue =  match[3]?.trim()
+    const generatedText = generatedTextRaw.trim();
+
+    // Save raw output for debugging (non-blocking)
+    try {
+      const logDir = path.join(__dirname, "logs");
+      if (!fs.existsSync(logDir)) fs.mkdirSync(logDir);
+      fs.writeFileSync(path.join(logDir, "last_response.txt"), generatedText, "utf8");
+    } catch (e) {
+      console.warn("Failed to write log file:", e.message);
+    }
+
+    // Clean the text (remove markdown, emoji, etc.)
+    const cleanText = generatedText
+      .replace(/\[([0-9]+)\]/g, "Panel $1")
+      .replace(/:\s*\n/g, "\n")
+      .replace(/```/g, "")
+      .replace(/\*\*/g, "")
+      .replace(/[^\x00-\x7F]/g, "") // strip non-ascii (emojis)
+      .trim();
+
+    // Primary regex: Panel N \n Scene: ... \n Camera: ... \n Dialogue: ...
+    let panelRegex = /Panel\s*\d+\s*\n\s*Scene:\s*(.+?)\s*\n\s*Camera:\s*(.+?)\s*\n\s*Dialogue:\s*(.+?)(?=\n\s*Panel|\s*$)/gis;
+    let matches = [...cleanText.matchAll(panelRegex)];
+
+    // If primary parsing fails, try a looser pattern on the original generated text
+    if (matches.length === 0) {
+      panelRegex = /Scene\s*:\s*((?:.|\n)+?)\s*\n\s*Camera\s*:\s*((?:.|\n)+?)\s*\n\s*Dialogue\s*:\s*"?(.+?)"?/gis;
+      matches = [...generatedText.matchAll(panelRegex)];
+    }
+
+    // If still empty, try another normalization attempt (e.g., uppercase PANEL)
+    if (matches.length === 0) {
+      const upper = generatedText.replace(/\[Panel/gi, "PANEL").replace(/\[panel/gi, "PANEL");
+      panelRegex = /PANEL\s*\d+\s*[:\s]*\n\s*Scene:\s*(.+?)\s*\n\s*Camera:\s*(.+?)\s*\n\s*Dialogue:\s*(.+?)(?=\n\s*PANEL|\s*$)/gis;
+      matches = [...upper.matchAll(panelRegex)];
+    }
+
+    // Warn on mismatch, slice to requested count
+    if (matches.length !== count) {
+      console.warn(`Panel count mismatch: requested ${count}, parsed ${matches.length}`);
+    }
+    matches = matches.slice(0, count);
+
+    if (matches.length === 0) {
+      console.error("Failed to parse any panels from AI output:", generatedText.substring(0, 400));
+      throw new Error("No valid panels parsed from AI output");
+    }
+
+    // Build panels array safely
+    const panels = matches.map((m, idx) => {
+      // m may be an array match or an object with numeric indices
+      const sceneRaw = m[1] ?? m[1];
+      const cameraRaw = m[2] ?? m[2];
+      const dialogueRaw = m[3] ?? m[3];
+
+      const scene = (sceneRaw || "").toString().trim();
+      const camera = (cameraRaw || "").toString().trim();
+      const dialogue = (dialogueRaw || "").toString().trim();
 
       if (!scene || !camera || !dialogue) {
-        throw new Error(`Panel is missing required sections. Scene: ${scene}, Camera: ${camera}, Dialogue: ${dialogue}`);
+        throw new Error(`Parsed panel ${idx + 1} is missing required fields. scene:${!!scene} camera:${!!camera} dialogue:${!!dialogue}`);
       }
 
-    return {
-      scene,
-      camera,
-      dialogue
-    };
+      return { scene, camera, dialogue };
     });
 
-    if (
-      !response ||
-      !response.choices ||
-      !response.choices[0]?.message?.content
-    ) {
-      throw new Error("No text generated from AI");
+    // Final checks
+    if (panels.length === 0) {
+      throw new Error("No valid panels produced after parsing.");
     }
 
-    console.log("Response from Hugging Face:", response.data);
-    if (!scene || !camera || !dialogue) {
-      throw new Error(`Panel is missing required sections. Scene: ${scene}, Camera: ${camera}, Dialogue: ${dialogue}`);
-    }
-
-    if (panels.length === 0) throw new Error("No valid panels parsed");
+    // Optionally enforce exact count
     if (panels.length !== count) {
-      throw new Error(`Requested ${count} panels but received ${panels.length}`);
+      console.warn(`Returning ${panels.length} panels but requested ${count}.`);
     }
 
-    if (Math.abs(panels.length - count) > 1) {
-      throw new Error(`Panel count mismatch. Requested ${count}, got ${panels.length}`);
-    }
-
-
-    res.json({ panels });
+    return res.json({ panels });
   } catch (error) {
-    console.error("Full Error Context:", {
-      message: error.message,
-      stack: error.stack,
-      response: error.response?.data
+    // Ensure we surface useful debugging info without leaking secrets
+    console.error("Full Error Context (script-writing):", {
+      message: error?.message,
+      stack: error?.stack,
+      responseData: error?.response?.data
     });
-    res.status(500).json({ 
-      error: error.message,
-      ...(error.response && { details: error.response.data })
+
+    return res.status(500).json({
+      error: error?.message || "Unknown server error",
+      ...(error?.response && { details: error.response.data })
     });
   }
 });
