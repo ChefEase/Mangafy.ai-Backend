@@ -1,4 +1,4 @@
-const { InferenceClient } = require("@huggingface/inference");
+const { OpenAI } = require("openai");
 
 const express = require("express");
 const cors = require("cors");
@@ -12,7 +12,10 @@ const PORT = 4000; // Choose any port that isn't in use
 const path = require('path');
 app.use(express.static(path.join(__dirname, '.next')));
 app.use(express.static(path.join(__dirname, 'public')));
-const hf = new InferenceClient(process.env.HF_API_KEY);
+const hf = new OpenAI({
+  baseURL: "https://router.huggingface.co/v1",
+  apiKey: process.env.HF_API_KEY, // Make sure your .env.local has HF_TOKEN
+});
 
 // Handle client-side routing
 const allowedOrigins = [
@@ -168,33 +171,19 @@ IF characters are mentioned in story, you MUST include them in the panels and de
 Outline: ${cleanOutline}`;
 
     // Call the HF chat model
-    const response = await hf.chatCompletion({
-      model: "mistralai/Mixtral-8x7B-Instruct-v0.1",
+    const response = await hf.chat.completions.create({
+      model: "meta-llama/Llama-3.1-8B-Instruct:novita",
       messages: [{ role: "user", content: prompt }],
-      parameters: {
-        max_new_tokens: 1000,
-        temperature: 0.3
-      }
+      temperature: 0.3,
+      max_tokens: 1000
     });
-
-    // Extract generated text safely (support multiple response shapes)
-    const choice = response?.choices?.[0];
-    const generatedTextRaw =
-      (choice?.message?.content && typeof choice.message.content === "string")
-        ? choice.message.content
-        : (choice?.text && typeof choice.text === "string")
-        ? choice.text
-        : (response?.generated_text && typeof response.generated_text === "string")
-        ? response.generated_text
-        : null;
-
+    
+    // Extract generated text
+    const generatedTextRaw = response.choices?.[0]?.message?.content;
     if (!generatedTextRaw || generatedTextRaw.trim().length < 10) {
-      console.error("Generated text is missing or too short", { generatedTextRaw, responseSummary: response ? true : false });
       throw new Error("No valid text generated from AI");
     }
-
     const generatedText = generatedTextRaw.trim();
-
     // Save raw output for debugging (non-blocking)
     try {
       const logDir = path.join(__dirname, "logs");
