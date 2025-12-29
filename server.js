@@ -159,6 +159,8 @@ It is a must that the scene includes a detailed description of the setting and a
 CHARACTERS MENTIONED MUST APPEAR IN THE PANELS.
 Every panel generated MUST use the same format. Use Panel 1, Panel 2, Panel 3 exactly.
 YOU MUST COMPLETELY GENERATE ALL THE PANELS. EVERY SINGLE PANEL MUST BE FULLY GENERATED IN THE RIGHT FORMAT.
+Inside each panel, Scene/Camera/Dialogue MUST ONLY describe that panel.
+DO NOT mention any other panel numbers (e.g., "in panel 2") inside any field.
 IF characters are mentioned in story, you MUST include them in the panels and describe what they are wearing or doing if specified.
 2. Number panels sequentially from Panel 1
 3. You MUST use the camera angle like e.g. close-up, medium, wide, low, extreme-close up, back, bird's eye, high
@@ -204,7 +206,16 @@ Outline: ${cleanOutline}`;
 
     // Primary regex: Panel N \n Scene: ... \n Camera: ... \n Dialogue: ...
     let panelRegex = /Panel\s*\d+\s*\n\s*Scene:\s*(.+?)\s*\n\s*Camera:\s*(.+?)\s*\n\s*Dialogue:\s*(.+?)(?=\n\s*Panel|\s*$)/gis;
-    let matches = [...cleanText.matchAll(panelRegex)];
+    const normalized = cleanText
+  // Ensure Panel headers are on their own line
+  .replace(/\b(Panel\s*\d+)\b/gi, "\n$1\n")
+  // Ensure field labels start on new lines
+  .replace(/\b(Scene|Camera|Dialogue)\s*:/gi, "\n$1:\n")
+  // Remove double blank lines
+  .replace(/\n{3,}/g, "\n\n")
+  .trim();
+
+    let matches = [...normalized.matchAll(panelRegex)];
 
     // If primary parsing fails, try a looser pattern on the original generated text
     if (matches.length === 0) {
@@ -230,24 +241,41 @@ Outline: ${cleanOutline}`;
       throw new Error("No valid panels parsed from AI output");
     }
 
-    // Build panels array safely
+    function stripEmbeddedPanels(text) {
+      if (!text) return text;
+    
+      // If the model accidentally includes "Panel 2" inside a Scene/Dialogue, cut it off.
+      // This is aggressive by design.
+      return text
+        .split(/\n\s*(?:Panel|PANEL)\s*\d+\b/)[0]
+        .split(/\b(?:Panel|PANEL)\s*\d+\b/)[0]
+        .split(/\n\s*(?:Scene|Camera|Dialogue)\s*:/i)[0] // cuts if it starts listing other fields
+        .trim();
+    }
+    
     const panels = matches.map((m, idx) => {
-      // m may be an array match or an object with numeric indices
-      const sceneRaw = m[1] ?? m[1];
-      const cameraRaw = m[2] ?? m[2];
-      const dialogueRaw = m[3] ?? m[3];
-
-      const scene = (sceneRaw || "").toString().trim();
-      const camera = (cameraRaw || "").toString().trim();
-      const dialogue = (dialogueRaw || "").toString().trim();
-
+      const sceneRaw = m[1];
+      const cameraRaw = m[2];
+      const dialogueRaw = m[3];
+    
+      let scene = (sceneRaw || "").toString().trim();
+      let camera = (cameraRaw || "").toString().trim();
+      let dialogue = (dialogueRaw || "").toString().trim();
+    
+      // ✅ NEW: decontaminate fields
+      scene = stripEmbeddedPanels(scene);
+      camera = stripEmbeddedPanels(camera);
+      dialogue = stripEmbeddedPanels(dialogue);
+    
       if (!scene || !camera || !dialogue) {
-        throw new Error(`Parsed panel ${idx + 1} is missing required fields. scene:${!!scene} camera:${!!camera} dialogue:${!!dialogue}`);
+        throw new Error(
+          `Parsed panel ${idx + 1} is missing required fields after cleanup. scene:${!!scene} camera:${!!camera} dialogue:${!!dialogue}`
+        );
       }
-
+    
       return { scene, camera, dialogue };
     });
-
+    
     // Final checks
     if (panels.length === 0) {
       throw new Error("No valid panels produced after parsing.");
