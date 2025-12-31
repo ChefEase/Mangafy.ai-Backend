@@ -162,6 +162,10 @@ YOU MUST COMPLETELY GENERATE ALL THE PANELS. EVERY SINGLE PANEL MUST BE FULLY GE
 Inside each panel, Scene/Camera/Dialogue MUST ONLY describe that panel.
 DO NOT mention any other panel numbers (e.g., "in panel 2") inside any field.
 IF characters are mentioned in story, you MUST include them in the panels and describe what they are wearing or doing if specified.
+IF A PANEL OUTLINE IS SHORT, KEEP THE SCENE SHORT.
+Do NOT add follow-up actions beyond what the outline states.
+Do NOT invent outfit changes unless the outline explicitly specifies clothing.
+If clothing is not specified, do not mention clothing.
 2. Number panels sequentially from Panel 1
 3. You MUST use the camera angle like e.g. close-up, medium, wide, low, extreme-close up, back, bird's eye, high
 6. You MUST generate conversations of the story
